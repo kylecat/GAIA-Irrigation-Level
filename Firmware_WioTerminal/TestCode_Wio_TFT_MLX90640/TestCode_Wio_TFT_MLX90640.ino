@@ -20,8 +20,22 @@
 // Define the TFT screen
 TFT_eSPI tft;
 
+// IR Array (MLX90640) 
+#include "MLX90640_API.h"
+#include "MLX9064X_I2C_Driver.h"
 
-// 
+const byte MLX90640_address = 0x33;  //Default 7-bit unshifted address of the MLX90640
+
+#define TA_SHIFT 8  //Default shift for MLX90640 in open air
+
+int8_t MLX9064XStatus;
+uint16_t eeMLX90640[832];     // 768(32*25)+64
+float mlx90640To[768];        // pixel 32*25
+uint16_t mlx90640Frame[834];  // 832+2
+paramsMLX90640 mlx90640;
+
+
+// Time flag for calculate Flush rate
 long TimeFlag[3]; // start, stop of get thermopile, stop of TFT print
 
 //  Define the maximum and minimum temperature values:
@@ -49,6 +63,46 @@ void setup() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
 
+  
+  if (isConnected() == false) {
+    Terminal.println("MLX90640 not detected at default I2C address. Please check wiring. Freezing.");
+
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("MLX90640 not detected at default I2C address.", 5, 0);
+    tft.drawString("Please check wiring. Freezing.", 5, 20);
+    while (1)
+      ;
+  }
+  else{
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString("MLX90640 online", 5, 0);
+  }
+  
+  //Get device parameters - We only have to do this once
+  MLX9064XStatus = MLX90640_DumpEE(MLX90640_address, eeMLX90640);
+  if (MLX9064XStatus != 0) {
+    Terminal.println("Failed to load system parameters");
+  }
+
+  MLX9064XStatus = MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
+  if (MLX9064XStatus != 0) {
+    Terminal.println("Parameter extraction failed");
+  }
+
+  //Once params are extracted, we can release eeMLX90640 array
+
+  //Set refresh rate
+  //A rate of 0.5Hz takes 4Sec per reading because we have to read two frames to get complete picture
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x00); //Set rate to 0.5Hz effective - Works
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x01); //Set rate to 1Hz effective - Works
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x02); //Set rate to 2Hz effective - Works
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x03); //Set rate to 4Hz effective - Works
+  MLX90640_SetRefreshRate(MLX90640_address, 0x04);  //Set rate to 8Hz effective - Works
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x05); //Set rate to 16Hz effective - Works at 800kHz
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x06); //Set rate to 32Hz effective - Works at 800kHz
+  //MLX90640_SetRefreshRate(MLX90640_address, 0x07); //Set rate to 64Hz effective - fails
 
   // Get the cutoff points:
   Getabcd();
@@ -67,30 +121,43 @@ void loop() {
   int w = 6;
   int h = 6;
 
-  int x = start_x;            // start_x = 64
-  int y = start_y + (h * 23); // start_y = 20 h = 6
+  int x = start_x +31 * 6;      // start_x = 64, 0 is left
+  int y = start_y ;             // start_y = 20 h = 6
   uint32_t c = TFT_BLUE;
 
   draw_menu(start_x, start_y, w, h); // 64, 20, 6, 6
 
   TimeFlag[0] = millis(); // log startTime
-  delay(100);
+  for (byte x = 0; x < 2; x++) {
+    int status = MLX90640_GetFrameData(MLX90640_address, mlx90640Frame);
+
+    float vdd = MLX90640_GetVdd(mlx90640Frame, &mlx90640);
+    float Ta = MLX90640_GetTa(mlx90640Frame, &mlx90640);
+
+    float tr = Ta - TA_SHIFT;  //Reflected temperature based on the sensor ambient temperature
+    float emissivity = 0.95;
+
+    MLX90640_CalculateTo(mlx90640Frame, &mlx90640, emissivity, tr, mlx90640To);
+  }
 
   TimeFlag[1] = millis(); // log stopReadTime
   for (int i = 0; i < 768; i++)
   {
     // Display a simple image version of the collected data (array) on the screen:
     // Define the color palette:
-    float _test= 21+i*0.03;
 
-    c = GetColor(_test);
+    // float _test= 21+i*0.03;
+    // c = GetColor(_test);
+    
+    c = GetColor(mlx90640To[i]);
     // Draw image pixels (rectangles):
     tft.fillRect(x, y, 6, 6, c);
-    x = x + 6;
+
+    x = x - 6;
     if (i % 32 == 31)
     {
-      x = start_x;
-      y = y - h;
+      x = start_x + 31 * 6 ;
+      y = y + h;
     }
   }
   
@@ -107,6 +174,8 @@ void loop() {
   Terminal.println(" Hz");
 
 
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Rate.R", start_x+210, start_y);
   tft.drawString(String(ReadRate,2), start_x+240, start_y+10);
   tft.drawString(" Hz", start_x+280, start_y+10);
@@ -115,7 +184,6 @@ void loop() {
   tft.drawString(String(ReadpusPrintRate,2), start_x+240, start_y+30);
   tft.drawString(" Hz", start_x+280, start_y+30);
 
-  delay(1000);
 }
 
 void Getabcd()
@@ -199,4 +267,13 @@ uint16_t GetColor(float val){
 
   // Utilize the built-in color mapping function to get a 5-6-5 color palette (R=5 bits, G=6 bits, B-5 bits):
   return tft.color565(red, green, blue);
+}
+
+//Returns true if the MLX90640 is detected on the I2C bus
+boolean isConnected() {
+  Wire.beginTransmission((uint8_t)MLX90640_address);
+  if (Wire.endTransmission() != 0) {
+    return (false);  //Sensor did not ACK
+  }
+  return (true);
 }
