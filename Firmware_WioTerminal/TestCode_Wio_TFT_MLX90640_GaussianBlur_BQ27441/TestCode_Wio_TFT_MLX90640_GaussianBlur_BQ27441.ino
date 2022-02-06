@@ -43,9 +43,15 @@ float mlx90640To[768];        // pixel 32*24
 uint16_t mlx90640Frame[834];  // 832+2
 paramsMLX90640 mlx90640;
 
+// Gaussian Blur 
+#include "GaussianBlur.h"
+GBlur blur;
+float SubPixel[3072];        // pixel 32*24*4
+
+
 
 // Time flag for calculate Flush rate
-long TimeFlag[3]; // start, stop of get thermopile, stop of TFT print
+long TimeFlag[4]; // start, stop of get thermopile, stop of get Gaussian interpolation, stop of TFT print
 
 //  Define the maximum and minimum temperature values:
 uint16_t MinTemp = 21;
@@ -139,7 +145,7 @@ void setup() {
 void loop() {
 
   // Draw the options menu:
-  int start_x = 64-48;
+  int start_x = 64 - 48; // 向左移 48 pixels
   int start_y = 20;
   int w = 6;
   int h = 6;
@@ -161,36 +167,58 @@ void loop() {
 
     MLX90640_CalculateTo(mlx90640Frame, &mlx90640, emissivity, tr, mlx90640To);
   }
-
   TimeFlag[1] = millis(); // log stopReadTime
-  for (int i = 0; i < 768; i++)
-  {
-    // Display a simple image version of the collected data (array) on the screen:
-    // Define the color palette:
+  
+  blur.calculate(mlx90640To, SubPixel);
+  TimeFlag[2] = millis(); // log stop InterpolationTime
 
-    // float _test= 21+i*0.03;
-    // c = GetColor(_test);
+  // for (int i = 0; i < 768; i++)
+  // {
+  //   // Display a simple image version of the collected data (array) on the screen:
+  //   // Define the color palette:
+
+  //   // float _test= 21+i*0.03;
+  //   // c = GetColor(_test);
     
-    c = GetColor(mlx90640To[i]);
-    // Draw image pixels (rectangles):
-    tft.fillRect(x, y, 6, 6, c);
+  //   c = GetColor(mlx90640To[i]);
+  //   // Draw image pixels (rectangles):
+  //   tft.fillRect(x, y, 6, 6, c);
 
-    x = x - 6;
-    if (i % 32 == 31)
+  //   x = x - 6;
+  //   if (i % 32 == 31)
+  //   {
+  //     x = start_x + 31 * 6 ;
+  //     y = y + h;
+  //   }
+  // }
+
+   for (int i = 0; i < 3072; i++)
+  {
+    
+    c = GetColor(SubPixel[i]);
+    // Draw image pixels (rectangles):
+    tft.fillRect(x, y, 3, 3, c);
+
+    x = x - 3;
+    if (i % 64 == 63)
     {
-      x = start_x + 31 * 6 ;
-      y = y + h;
+      x = start_x + 63 * 3 -3;
+      y = y + 3;
     }
   }
   
-  TimeFlag[2] = millis(); // log stopPrintTime
+  TimeFlag[3] = millis(); // log stopPrintTime
   float ReadRate = 1000.0 / (TimeFlag[1] - TimeFlag[0]);
-  float ReadpusPrintRate = 1000.0 / (TimeFlag[2] - TimeFlag[0]);
+  float ExpandPixel = (TimeFlag[2] - TimeFlag[1]);
+  float ReadpusPrintRate = 1000.0 / (TimeFlag[3] - TimeFlag[0]);
 
   Terminal.println("\r\n====================");
   Terminal.print("Read rate: ");
   Terminal.print(ReadRate, 2);
   Terminal.println(" Hz");
+  Terminal.print("Gaussian Interpolation: ");
+  Terminal.print(ExpandPixel);
+  Terminal.println(" ms");
   Terminal.print("Read plus print rate: ");
   Terminal.print(ReadpusPrintRate, 2);
   Terminal.println(" Hz");
@@ -198,6 +226,7 @@ void loop() {
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
   tft.drawString("Rate.R", start_x+210, start_y);
   tft.drawString(String(ReadRate,2), start_x+240, start_y+10);
   tft.drawString(" FPS", start_x+270, start_y+10);
@@ -206,6 +235,10 @@ void loop() {
   tft.drawString(String(ReadpusPrintRate,2), start_x+240, start_y+30);
   tft.drawString(" FPS", start_x+270, start_y+30);
 
+  tft.drawString("Image.modify", start_x+210, start_y+40);
+  tft.drawString(String(ExpandPixel), start_x+240, start_y+50);
+  tft.drawString(" ms", start_x+270, start_y+50);
+
   if(hasBattery){
     showBatteryStatus();
     tft.drawString("SoC. "+String(bat_soc)+" %", start_x+210, start_y+120);
@@ -213,6 +246,7 @@ void loop() {
     tft.drawString("Bat.mA "+String(bat_current)+" mA", start_x+210, start_y+140);
   }
 }
+
 
 void Getabcd()
 {
@@ -227,7 +261,6 @@ void draw_menu(int start_x, int start_y, int w, int h){
   // Draw the border:
   int offset = 10;
   tft.drawRoundRect(start_x - offset, start_y - offset, (2 * offset) + (w * 32), (2 * offset) + (h * 24), 10, TFT_WHITE);
-
 
   // Draw options:
   int x_c = 52;
