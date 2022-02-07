@@ -49,19 +49,28 @@ GBlur blur;
 float SubPixel[3072];        // pixel 32*24*4
 
 
-
 // Time flag for calculate Flush rate
 long TimeFlag[4]; // start, stop of get thermopile, stop of get Gaussian interpolation, stop of TFT print
 
 //  Define the maximum and minimum temperature values:
-uint16_t MinTemp = 21;
-uint16_t MaxTemp = 45;
+float MinTemp = 21.0;
+float MaxTemp = 45.0;
 
 // Define the data holders:
 // String MLX90640_data = "";
 byte red, green, blue;
 float a, b, c, d;
 
+void Getabcd(uint16_t _maxT=0, uint16_t _minT=0){
+  if (_maxT>0 && _maxT>_minT) MaxTemp = _maxT;
+  if (_minT>0 && _maxT>_minT) MinTemp = _minT;
+  
+  // Get the cutoff points based on the given maximum and minimum temperature values.
+  a = MinTemp + (MaxTemp - MinTemp) * 0.2121;
+  b = MinTemp + (MaxTemp - MinTemp) * 0.3182;
+  c = MinTemp + (MaxTemp - MinTemp) * 0.4242;
+  d = MinTemp + (MaxTemp - MinTemp) * 0.8182;
+}
 
 void setup() {
   // Initialize Terminal Monitor
@@ -144,13 +153,17 @@ void setup() {
 
 void loop() {
 
+  float _MAX_T=0.0;    // 從0 往上找
+  float _MIN_T=200.0;  // 從200往下找
+
   // Draw the options menu:
-  int start_x = 64 - 48; // 向左移 48 pixels
+  int start_x = 64-48; // 向左移 48 pixels
   int start_y = 20;
   int w = 6;
   int h = 6;
 
-  int x = start_x +31 * 6;      // start_x = 64, 0 is left
+  // int x = start_x +31 * 6+3;      // start_x = 64, 0 is left
+  int x = start_x + 63 * 3 - 3;
   int y = start_y ;             // start_y = 20 h = 6
   uint32_t c = TFT_BLUE;
 
@@ -158,6 +171,7 @@ void loop() {
 
   TimeFlag[0] = millis(); // log startTime
 
+  // get Thermal Data
   for (byte x = 0; x < 2; x++) {
     int status = MLX90640_GetFrameData(MLX90640_address, mlx90640Frame);
     float vdd = MLX90640_GetVdd(mlx90640Frame, &mlx90640);
@@ -169,8 +183,11 @@ void loop() {
   }
   TimeFlag[1] = millis(); // log stopReadTime
   
+
+  // get Gaussian Blur Datqa 32*24 -> 64*48
   blur.calculate(mlx90640To, SubPixel);
   TimeFlag[2] = millis(); // log stop InterpolationTime
+
 
   // for (int i = 0; i < 768; i++)
   // {
@@ -192,20 +209,28 @@ void loop() {
   //   }
   // }
 
-   for (int i = 0; i < 3072; i++)
-  {
-    
+  for (int i = 0; i < 3072; i++){
+     if (_MAX_T < SubPixel[i]) _MAX_T = SubPixel[i];
+     if (_MIN_T > SubPixel[i]) _MIN_T = SubPixel[i];
+   }  
+   
+  // Get the cutoff points:
+  Getabcd(_MAX_T,_MIN_T);
+
+  for (int i = 0; i < 3072; i++)  {
     c = GetColor(SubPixel[i]);
     // Draw image pixels (rectangles):
     tft.fillRect(x, y, 3, 3, c);
 
-    x = x - 3;
+    x = x -3;
     if (i % 64 == 63)
     {
       x = start_x + 63 * 3 -3;
       y = y + 3;
     }
   }
+
+  draw_legend(_MAX_T,_MIN_T);
   
   TimeFlag[3] = millis(); // log stopPrintTime
   float ReadRate = 1000.0 / (TimeFlag[1] - TimeFlag[0]);
@@ -227,17 +252,25 @@ void loop() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
-  tft.drawString("Rate.R", start_x+210, start_y);
+  tft.drawString("Rate.R", start_x+230, start_y);
   tft.drawString(String(ReadRate,2), start_x+240, start_y+10);
   tft.drawString(" FPS", start_x+270, start_y+10);
 
-  tft.drawString("Rate.RP", start_x+210, start_y+20);
+  tft.drawString("Rate.RP", start_x+230, start_y+20);
   tft.drawString(String(ReadpusPrintRate,2), start_x+240, start_y+30);
   tft.drawString(" FPS", start_x+270, start_y+30);
 
-  tft.drawString("Image.modify", start_x+210, start_y+40);
+  tft.drawString("Image.modify", start_x+230, start_y+40);
   tft.drawString(String(ExpandPixel), start_x+240, start_y+50);
   tft.drawString(" ms", start_x+270, start_y+50);
+
+  tft.drawString("Max.T", start_x+230, start_y+70);
+  tft.drawString(String(_MAX_T,2), start_x+245, start_y+80);
+  tft.drawString(" C", start_x+280, start_y+80);
+
+  tft.drawString("Min.T", start_x+230, start_y+90);
+  tft.drawString(String(_MIN_T,2), start_x+245, start_y+100);
+  tft.drawString(" C", start_x+280, start_y+100);
 
   if(hasBattery){
     showBatteryStatus();
@@ -245,16 +278,6 @@ void loop() {
     tft.drawString("Bat.mV "+String(bat_volts)+" mV", start_x+210, start_y+130);
     tft.drawString("Bat.mA "+String(bat_current)+" mA", start_x+210, start_y+140);
   }
-}
-
-
-void Getabcd()
-{
-  // Get the cutoff points based on the given maximum and minimum temperature values.
-  a = MinTemp + (MaxTemp - MinTemp) * 0.2121;
-  b = MinTemp + (MaxTemp - MinTemp) * 0.3182;
-  c = MinTemp + (MaxTemp - MinTemp) * 0.4242;
-  d = MinTemp + (MaxTemp - MinTemp) * 0.8182;
 }
 
 void draw_menu(int start_x, int start_y, int w, int h){
@@ -290,6 +313,19 @@ void draw_menu(int start_x, int start_y, int w, int h){
   tft.drawChar(x_s + (3 * sp), y_s, 'D', TFT_BLACK, TFT_WHITE, 3);
   tft.drawString("Dry", x_c + (3 * sp) - 8, y_c - 33);
 }
+
+void draw_legend(float _max,float _min){
+  uint32_t _c = TFT_BLUE;
+
+  float _delta = (41-20)/50.0;
+  for(int _i=0;_i<48;_i++){
+     _c = GetColor(_max-_delta*_i);
+    tft.fillRect(207, 20+_i*3, 6, 3, _c);
+  }
+
+  
+}
+
 
 uint16_t GetColor(float val){
   /*
@@ -342,11 +378,11 @@ boolean isConnected(uint8_t _addr) {
 void showBatteryStatus(){
   bat_soc = lipo.soc();                  // Read state-of-charge (%)
   bat_volts = lipo.voltage();            // Read battery voltage (mV)
-  bat_current = lipo.current(AVG);                // Read average current (mA)
+  bat_current = lipo.current(AVG);       // Read average current (mA)
   bat_fullCapacity = lipo.capacity(FULL);// Read full capacity (mAh)
   bat_capacity = lipo.capacity(REMAIN);  // Read remaining capacity (mAh)
-  bat_power = lipo.power();                       // Read average power draw (mW)
-  bat_health = lipo.soh();                        // Read state-of-health (%)
+  bat_power = lipo.power();              // Read average power draw (mW)
+  bat_health = lipo.soh();               // Read state-of-health (%)
 
   // // Now print out those values:
   // String toPrint = String(bat_soc) + "% | ";
