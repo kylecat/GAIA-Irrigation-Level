@@ -252,23 +252,23 @@ void loop() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
-  tft.drawString("Rate.R", start_x+230, start_y);
+  tft.drawString("Rate.R", start_x+210, start_y);
   tft.drawString(String(ReadRate,2), start_x+240, start_y+10);
   tft.drawString(" FPS", start_x+270, start_y+10);
 
-  tft.drawString("Rate.RP", start_x+230, start_y+20);
+  tft.drawString("Rate.RP", start_x+210, start_y+20);
   tft.drawString(String(ReadpusPrintRate,2), start_x+240, start_y+30);
   tft.drawString(" FPS", start_x+270, start_y+30);
 
-  tft.drawString("Image.modify", start_x+230, start_y+40);
+  tft.drawString("Image.modify", start_x+210, start_y+40);
   tft.drawString(String(ExpandPixel), start_x+240, start_y+50);
   tft.drawString(" ms", start_x+270, start_y+50);
 
-  tft.drawString("Max.T", start_x+230, start_y+70);
+  tft.drawString("Max.T", start_x+210, start_y+70);
   tft.drawString(String(_MAX_T,2), start_x+245, start_y+80);
   tft.drawString(" C", start_x+280, start_y+80);
 
-  tft.drawString("Min.T", start_x+230, start_y+90);
+  tft.drawString("Min.T", start_x+210, start_y+90);
   tft.drawString(String(_MIN_T,2), start_x+245, start_y+100);
   tft.drawString(" C", start_x+280, start_y+100);
 
