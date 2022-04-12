@@ -322,8 +322,6 @@ void draw_legend(float _max,float _min){
      _c = GetColor(_max-_delta*_i);
     tft.fillRect(207, 20+_i*3, 6, 3, _c);
   }
-
-  
 }
 
 
